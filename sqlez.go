@@ -73,7 +73,7 @@ func (s DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool) ([]string
 
 // SelectFrom performs a "SELECT y FROM x" query on the database and returns a []interface{} of the results.
 // Pass in a struct representing the database rows to specify what data you get back.
-func (s *DB) SelectFrom(database string, structure interface{}, params ...interface{}) (out []interface{}, err error) {
+func (s *DB) SelectFrom(table string, structure interface{}, params ...interface{}) (out []interface{}, err error) {
 
 	t := reflect.TypeOf(structure)
 	if t.Kind() != reflect.Struct {
@@ -90,7 +90,7 @@ func (s *DB) SelectFrom(database string, structure interface{}, params ...interf
 			query += ", "
 		}
 	}
-	query += " FROM " + database
+	query += " FROM " + table
 
 	if len(params) > 0 {
 
@@ -151,7 +151,7 @@ func (s *DB) SelectFrom(database string, structure interface{}, params ...interf
 // InsertInto performs a "INSERT INTO x (y) VALUES (z)" query on the database and returns the results.
 // Pass a struct representing the data you want to insert. Set skipEmpty to true if you want to ignore
 // fields in the struct that are unset/zero. Otherwise the zeroed values will be inserted.
-func (s *DB) InsertInto(database string, data interface{}, skipEmpty bool) (res sql.Result, err error) {
+func (s *DB) InsertInto(table string, data interface{}, skipEmpty bool) (res sql.Result, err error) {
 
 	v := reflect.ValueOf(data)
 	if v.Kind() != reflect.Struct {
@@ -172,14 +172,14 @@ func (s *DB) InsertInto(database string, data interface{}, skipEmpty bool) (res 
 		}
 	}
 
-	query := "INSERT INTO " + database + " (" + columns + ") VALUES (" + values + ")"
+	query := "INSERT INTO " + table + " (" + columns + ") VALUES (" + values + ")"
 	s.LastQuery = query
 	return s.DB.Exec(query, interfaces...)
 }
 
 // Update performs an "UPDATE x SET y = z" query on the database and returns the results.
 // Pass a struct representing the data you want to update and Params to specify what to update.
-func (s *DB) Update(database string, data interface{}, params ...interface{}) (res sql.Result, err error) {
+func (s *DB) Update(table string, data interface{}, params ...interface{}) (res sql.Result, err error) {
 
 	v := reflect.ValueOf(data)
 	if v.Kind() != reflect.Struct {
@@ -221,7 +221,7 @@ func (s *DB) Update(database string, data interface{}, params ...interface{}) (r
 
 	labels, interfaces := s.scanStruct(v, false, p.SkipEmpty)
 
-	query := "UPDATE " + database + " SET "
+	query := "UPDATE " + table + " SET "
 	for i, v := range labels {
 		query += v + " = ?"
 		if i < len(labels)-1 {

@@ -1,6 +1,5 @@
 # sqlEZ
-By James MacWhyte (@jmacwhyte)
-#### An extremely simply SQL database interface for Go
+#### An extremely simply SQL database wrapper for Go
 Are you tired of writing so much code just to pull data from a SQL database into Go? Does your data structure in Go closely mirror the structure of your database? Do you often pull out data, modify it, and then want to simply slap it back in? If you answered yes to any of these questions, this package is for you!
 
 #### The concept
@@ -112,7 +111,9 @@ The only downside to this system is that a partially-set struct is full of many 
 
 Luckily we've thought of this! By setting `sqlez.Params.SkipEmpty` to true when calling `Update`, you can tell sqlEZ to ignore unset values. That means you can do the following, and only Frank's nickname will be changed:
 ```
-res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, sqlez.Params{Where: `name = "Frank"`, SkipEmpty: true})
+res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, sqlez.Params{
+	Where: `name = "Frank"`,
+	SkipEmpty: true})
 ```
 
 `InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them. Enable it by passing `true` to `InsertInto`'s third parameter (`skipEmpty`).
@@ -122,7 +123,7 @@ If you want to examine the SQL command that sqlEZ has generated for you, the `ez
 
 The following code with a typo in it...
 ```
-res, err := db.SelectFrom("operators", WrestlerBio{}, sqlez.Params{Where: `name = "Frank"`})
+res, err := db.SelectFrom("operators", WrestlerBio{}, sqlez.Params{Where: `"name = "Frank"`})
 
 if err != nil {
 	fmt.Println(err)
