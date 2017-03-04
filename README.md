@@ -118,6 +118,21 @@ res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, s
 
 `InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them. Enable it by passing `true` to `InsertInto`'s third parameter (`skipEmpty`).
 
+#### Storing Go types that don't have a database counterpart
+Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed but the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Easy!
+```
+type WrestlerBio struct {
+	Name           string      `db:"name"`
+	Nickname       string      `db:"callsign"`
+	Age            int         `db:"age"`
+	PointsPerRound map[int]int `dbjson:"points"`
+}
+```
+With a struct like the above, the PointsPerRound map will be saved in a column titled "points" in your database. Make sure the type of the database column is large enough ("text" is probably a better choice than "varchar").
+
+#### Changing struct field tags
+If you don't want to use the "db" and "dbjson" tags and would rather call them something else (to avoid conflicts, for example), you can call sqlez.SetDBTag(string) and sqlez.SetJSONTag(string) right after creating the sqlez.DB object to change the text it searches for.
+
 #### Troubleshooting
 If you want to examine the SQL command that sqlEZ has generated for you, the `ezsql.DB` object that `ezsql.Open()` returns includes a `LastQuery` variable which will contain the string that was last generated. This usually gets updated even if your SQL database returns an error, so printing out this string can be a quick way to see why things aren't working.
 
