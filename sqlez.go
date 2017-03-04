@@ -19,12 +19,12 @@ type Params struct {
 
 // DB represents the sqlez database wrapper
 type DB struct {
-	DB          *sql.DB
-	LastQuery   string
-	dbTag       string
-	dbjsonTag   string
-	jsonNewPtr  []*[]byte
-	jsonOrigPtr []interface{}
+	DB            *sql.DB
+	LastQuery     string
+	dbTag         string
+	dbjsonTag     string
+	jsonPtr       map[*sql.NullString]interface{}
+	nullStringPtr map[*sql.NullString]interface{}
 }
 
 // Open initiates the connection to the database. It takes the same parameters as the database/sql package, and returns a sqlEZ DB struct. The contained *sql.DB is exported so you can make use of it directly.
@@ -60,7 +60,12 @@ func (s *DB) SetJSONTag(tag string) {
 // scanStruct recursively scans a provided struct and returns pointers/interfaces and labels for all items that
 // have a "db" tag. Set pointers to true if you want pointers, otherwise interfaces will be returned. Set skipEmpty
 // to true if you want to ignore fields that have unset/zero values.
-func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool) ([]string, []interface{}, error) {
+func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun bool) ([]string, []interface{}, error) {
+
+	if firstRun {
+		s.jsonPtr = make(map[*sql.NullString]interface{})
+		s.nullStringPtr = make(map[*sql.NullString]interface{})
+	}
 
 	var data []interface{}
 	var labels []string
@@ -69,15 +74,17 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool) ([]strin
 		field := v.Field(i)
 		fieldt := v.Type().Field(i)
 
-		if label, exists := fieldt.Tag.Lookup(s.dbjsonTag); exists {
+		if label, exists := fieldt.Tag.Lookup(s.dbjsonTag); exists &&
+			(!skipEmpty || (field.Interface() != reflect.Zero(field.Type()).Interface())) {
+
 			// If we are requesting pointers, we must be pulling data from the database. Save a pointer to the actual
 			// interface in the buffer, and pass a pointer to a string in the other buffer. After pulling data from the
-			// database, Unmarshal the string into the pointer saved in the buffer before returning the data.
+			// database, Unmarshal the string into the pointer saved in the buffer before returning the data. We can do
+			// the same thing with converting strings to NullString.
 			if pointers {
-				s.jsonOrigPtr = append(s.jsonOrigPtr, field.Addr().Interface())
-				newstr := new([]byte)
-				s.jsonNewPtr = append(s.jsonNewPtr, newstr)
-				data = append(data, newstr)
+				str := new(sql.NullString)
+				s.jsonPtr[str] = field.Addr().Interface()
+				data = append(data, str)
 
 			} else { // Prepare json to enter
 				payload, err := json.Marshal(field.Interface())
@@ -86,26 +93,36 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool) ([]strin
 				}
 				data = append(data, payload)
 			}
+
 			labels = append(labels, label)
 			continue
-		} else if field.Kind() == reflect.Struct {
-			l, d, e := s.scanStruct(field, pointers, skipEmpty)
+		}
+
+		if field.Kind() == reflect.Struct {
+			l, d, e := s.scanStruct(field, pointers, skipEmpty, false)
 			if e != nil {
 				return nil, nil, e
 			}
 			labels = append(labels, l...)
 			data = append(data, d...)
-		} else if label, exists := fieldt.Tag.Lookup(s.dbTag); exists {
-			if skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()) {
-				continue
-			}
+			continue
+		}
 
+		if label, exists := fieldt.Tag.Lookup(s.dbTag); exists &&
+			(!skipEmpty || (field.Interface() != reflect.Zero(field.Type()).Interface())) {
+
+			labels = append(labels, label)
 			if pointers {
+				if field.Kind() == reflect.String {
+					ns := new(sql.NullString)
+					s.nullStringPtr[ns] = field.Addr().Interface()
+					data = append(data, ns)
+					continue
+				}
 				data = append(data, field.Addr().Interface())
 			} else {
 				data = append(data, field.Interface())
 			}
-			labels = append(labels, label)
 		}
 	}
 
@@ -126,7 +143,7 @@ func (s *DB) SelectFrom(table string, structure interface{}, params ...interface
 	}
 
 	copy := reflect.New(t).Elem()
-	labels, pointers, err := s.scanStruct(copy, true, false)
+	labels, pointers, err := s.scanStruct(copy, true, false, true)
 	if err != nil {
 		return nil, err
 	}
@@ -187,12 +204,23 @@ func (s *DB) SelectFrom(table string, structure interface{}, params ...interface
 		}
 
 		// Unmarshal any strings we have in the buffer
-		for i, v := range s.jsonOrigPtr {
-			err = json.Unmarshal(*s.jsonNewPtr[i], v)
-			if err != nil {
-				return nil, err
+		for i, v := range s.jsonPtr {
+			if i.Valid {
+				err = json.Unmarshal([]byte(i.String), v)
+				if err != nil {
+					return nil, err
+				}
+
 			}
 		}
+
+		// Unwrap any sql.NullStrings
+		for i, v := range s.nullStringPtr {
+			if i.Valid {
+				reflect.ValueOf(v).Elem().SetString(i.String)
+			}
+		}
+
 		out = append(out, copy.Interface())
 	}
 
@@ -214,7 +242,7 @@ func (s *DB) InsertInto(table string, data interface{}, skipEmpty bool) (res sql
 		return nil, errors.New(`'structure' must be a struct describing the database rows`)
 	}
 
-	labels, interfaces, err := s.scanStruct(v, false, skipEmpty)
+	labels, interfaces, err := s.scanStruct(v, false, skipEmpty, true)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +305,7 @@ func (s *DB) Update(table string, data interface{}, params ...interface{}) (res 
 		}
 	}
 
-	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty)
+	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty, true)
 	if err != nil {
 		return nil, err
 	}
