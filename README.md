@@ -47,6 +47,8 @@ for _, i := range res {
 	fmt.Printf("Name: %s, Nickname: %s\n", wrestler.Name, wrestler.Nickname)
 }
 ```
+The contents of embedded structs will be checked even if the struct itself doesn't have a "db" tag. If you want to prevent this, give the struct a tag of "dbskip" (and any value) and we'll ignore it.
+
 
 #### WHERE, ORDER BY, LIMIT
 If you want to be more selective about the kind of data you get back, you can also pass a sqlez.Params struct with extra options:
@@ -131,7 +133,7 @@ type WrestlerBio struct {
 With a struct like the above, the PointsPerRound map will be saved in a column titled "points" in your database. Make sure the type of the database column is large enough ("text" is probably a better choice than "varchar").
 
 #### Changing struct field tags
-If you don't want to use the "db" and "dbjson" tags and would rather call them something else (to avoid conflicts, for example), you can call sqlez.SetDBTag(string) and sqlez.SetJSONTag(string) right after creating the sqlez.DB object to change the text it searches for.
+If you don't want to use the "db", "dbjson", and "dbskip" tags and would rather call them something else (to avoid conflicts, for example), you can call sqlez.SetDBTag(string), sqlez.SetJSONTag(string), and sqlez.SetSkipTag(string) right after creating the sqlez.DB object to change the text it searches for.
 
 #### Troubleshooting
 If you want to examine the SQL command that sqlEZ has generated for you, the `ezsql.DB` object that `ezsql.Open()` returns includes a `LastQuery` variable which will contain the string that was last generated. This usually gets updated even if your SQL database returns an error, so printing out this string can be a quick way to see why things aren't working.

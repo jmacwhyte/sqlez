@@ -23,6 +23,7 @@ type DB struct {
 	LastQuery     string
 	dbTag         string
 	dbjsonTag     string
+	dbskipTag     string
 	jsonPtr       map[*sql.NullString]interface{}
 	nullStringPtr map[*sql.NullString]interface{}
 }
@@ -37,7 +38,7 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 		return nil, err
 	}
 
-	ez.dbTag, ez.dbjsonTag = "db", "dbjson"
+	ez.dbTag, ez.dbjsonTag, ez.dbskipTag = "db", "dbjson", "dbskip"
 
 	return &ez, nil
 }
@@ -55,6 +56,11 @@ func (s *DB) SetDBTag(tag string) {
 // SetJSONTag changes the struct field tag to look for when searching for database column names for datatypes that should be saved as JSON.
 func (s *DB) SetJSONTag(tag string) {
 	s.dbjsonTag = tag
+}
+
+// SetSkipTag changes the struct field tag to look for when ignoring embedded structs.
+func (s *DB) SetSkipTag(tag string) {
+	s.dbskipTag = tag
 }
 
 // scanStruct recursively scans a provided struct and returns pointers/interfaces and labels for all items that
@@ -89,7 +95,7 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 			} else { // Prepare json to enter
 				payload, err := json.Marshal(field.Interface())
 				if err != nil {
-					return nil, nil, err
+					return nil, nil, errors.New(field.Type().Name() + ": " + err.Error())
 				}
 				data = append(data, payload)
 			}
@@ -98,7 +104,7 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 			continue
 		}
 
-		if field.Kind() == reflect.Struct {
+		if _, exists := fieldt.Tag.Lookup(s.dbskipTag); field.Kind() == reflect.Struct && !exists {
 			l, d, e := s.scanStruct(field, pointers, skipEmpty, false)
 			if e != nil {
 				return nil, nil, e
@@ -208,7 +214,7 @@ func (s *DB) SelectFrom(table string, structure interface{}, params ...interface
 			if i.Valid {
 				err = json.Unmarshal([]byte(i.String), v)
 				if err != nil {
-					return nil, err
+					return nil, errors.New(i.String + ": " + err.Error())
 				}
 
 			}
