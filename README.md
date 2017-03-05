@@ -121,7 +121,7 @@ res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, s
 `InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them. Enable it by passing `true` to `InsertInto`'s third parameter (`skipEmpty`).
 
 #### Storing Go types that don't have a database counterpart
-Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed but the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Easy!
+Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed by the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Maps will automatically be converted to JSON strings, even if you don't specify the "dbjson" tag. Easy!
 ```
 type WrestlerBio struct {
 	Name           string      `db:"name"`

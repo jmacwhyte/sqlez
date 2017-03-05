@@ -80,8 +80,34 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 		field := v.Field(i)
 		fieldt := v.Type().Field(i)
 
-		if label, exists := fieldt.Tag.Lookup(s.dbjsonTag); exists &&
-			(!skipEmpty || (field.Interface() != reflect.Zero(field.Type()).Interface())) {
+		// Get all the tags, and check if empty/should be skipped
+		label, jsonexists := fieldt.Tag.Lookup(s.dbjsonTag)
+		dblabel, dbexists := fieldt.Tag.Lookup(s.dbTag)
+		_, skiptagexists := fieldt.Tag.Lookup(s.dbskipTag)
+		skip := (skipEmpty && (field.Interface() != reflect.Zero(field.Type()).Interface()))
+
+		if label == "" && dblabel != "" {
+			label = dblabel
+		}
+
+		// If there's a skip tag, skip it
+		if skiptagexists {
+			continue
+		}
+
+		// If it is a struct, but we aren't supposed to handle it as json, recursively scan it
+		if field.Kind() == reflect.Struct && !jsonexists {
+			l, d, e := s.scanStruct(field, pointers, skipEmpty, false)
+			if e != nil {
+				return nil, nil, e
+			}
+			labels = append(labels, l...)
+			data = append(data, d...)
+			continue
+		}
+
+		// If it's tagged as json, we need to convert it. We do this automatically for maps.
+		if jsonexists || (dbexists && fieldt.Type.Kind() == reflect.Map) {
 
 			// If we are requesting pointers, we must be pulling data from the database. Save a pointer to the actual
 			// interface in the buffer, and pass a pointer to a string in the other buffer. After pulling data from the
@@ -92,7 +118,7 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 				s.jsonPtr[str] = field.Addr().Interface()
 				data = append(data, str)
 
-			} else { // Prepare json to enter
+			} else { // Prepare json to insert into database
 				payload, err := json.Marshal(field.Interface())
 				if err != nil {
 					return nil, nil, errors.New(field.Type().Name() + ": " + err.Error())
@@ -104,18 +130,8 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 			continue
 		}
 
-		if _, exists := fieldt.Tag.Lookup(s.dbskipTag); field.Kind() == reflect.Struct && !exists {
-			l, d, e := s.scanStruct(field, pointers, skipEmpty, false)
-			if e != nil {
-				return nil, nil, e
-			}
-			labels = append(labels, l...)
-			data = append(data, d...)
-			continue
-		}
-
-		if label, exists := fieldt.Tag.Lookup(s.dbTag); exists &&
-			(!skipEmpty || (field.Interface() != reflect.Zero(field.Type()).Interface())) {
+		// Otherwise, if it has a DB label let's process it
+		if dbexists && !skip {
 
 			labels = append(labels, label)
 			if pointers {
