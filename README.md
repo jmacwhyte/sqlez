@@ -1,11 +1,20 @@
-# sqlEZ
-#### An extremely simply SQL database wrapper for Go
-Are you tired of writing so much code just to pull data from a SQL database into Go? Does your data structure in Go closely mirror the structure of your database? Do you often pull out data, modify it, and then want to simply slap it back in? If you answered yes to any of these questions, this package is for you!
+# sqlEZ - A simpler way to use SQL in Go
+#### Why this exists
+I had written multiple functions to SELECT, INSERT, and UPDATE data in my database, but with 30+ columns of data being referenced each time, making small changes turned tedious. If I wanted to change or add a column in/to my database, I now had to update the SQL code in each function, update the structs I was adding the data to, and make sure the data from the column made it into the correct part of the struct. There must be a better way!
 
-#### The concept
-To use sqlEZ, first define a struct to represent the data you want to get from your database. You can then use that struct as a vehicle for moving data in and out of the database. So easy!
+I decided it would be much better if I could simply define a struct that represents the data in my database and let a library do all the other work. I took a look at [sqlx](https://github.com/jmoiron/sqlx) which adds many improvements to the standard sql library, but I realized it wouldn't help much with my long lists of column names. I decided to write this library, sqleEZ, to make it even easier. Now when I change or add a column, all I need to do is change the struct(s) that reference that data and I'm ready to use it in my program!
 
-#### SELECTing data
+#### Compared to sqlx
+Here are some differences between sqlEZ and sqlx. If any of these are wrong, please open an issue and let me know!
+
+*It's possible to use sqlEZ without writing any SQL code (although you will need to write some if you want to use WHERE statements). With sqlx you still write raw SQL code, which makes it much more flexible but also doesn't help cut down on code (which sqlEZ was specifically designed to do).
+*SqlEZ lets you UPDATE by simple passing in the updated struct--no need for lengthy "SET x=y" sql code.
+*SqlEZ handles NULL strings behind the scenes, so you don't need to use the sql.NullString type in your structs. If it's NULL in your database, it will be unset in your struct. Sqlx requires you to use the NullString type in your struct if your database allows NULL values.
+*SqlEZ can store non-sql datatypes (such as entire structs and maps) as JSON string values, and automatically does the conversion to-from JSON for you.
+
+### Getting started
+To use sqlEZ, first define a struct to represent the data you want to get from your database. You can then use that struct as a vehicle for moving data in and out of the database.
+
 For example, let's say you had a database of Sumo wrestlers, named `wreslters`, that looked like the following:
 ```
 +--------------+--------------+
@@ -26,7 +35,7 @@ type WrestlerBio struct {
 	Age      int
 }
 ```
-As you can see, our database has a column titled "callsign", but in Go we're calling it "Nickname". No problem! To link fields in our struct to the columns in our database, we need to give each field a "db" tag that matches the name of the column. Any field that doesn't have a "db" tag will be ignored, so you can add some go-only metadata if you want:
+As you can see, our database has a column titled "callsign", but in Go we're calling it "Nickname". To link fields in our struct to the columns in our database, we need to give each field a "db" tag that matches the name of the column. Any field that doesn't have a "db" tag will be ignored, so you can add some go-only metadata if you want:
 ```
 type WrestlerBio struct {
 	Name         string `db:"name"`
@@ -35,6 +44,8 @@ type WrestlerBio struct {
 	NumberOfWins int
 }
 ```
+
+#### SELECTing data
 Once, you've initialized sqlEZ (in the same way as you would call sql.Open()), you can get a list of all your Sumo wrestlers from the database like so:
 ```
 db := sqlez.Open("mysql", dataSource)
@@ -47,7 +58,7 @@ for _, i := range res {
 	fmt.Printf("Name: %s, Nickname: %s\n", wrestler.Name, wrestler.Nickname)
 }
 ```
-The contents of embedded structs will be checked even if the struct itself doesn't have a "db" tag. If you want to prevent this, give the struct a tag of "dbskip" (and any value) and we'll ignore it.
+The contents of embedded structs will be checked even if the embedded struct itself doesn't have a "db" tag. If you want to prevent this, give the struct a tag of "dbskip" (and any value) and we'll ignore it.
 
 
 #### WHERE, ORDER BY, LIMIT
@@ -121,7 +132,7 @@ res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, s
 `InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them. Enable it by passing `true` to `InsertInto`'s third parameter (`skipEmpty`).
 
 #### Storing Go types that don't have a database counterpart
-Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed by the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Maps will automatically be converted to JSON strings, even if you don't specify the "dbjson" tag. Easy!
+Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed by the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Maps will automatically be converted to JSON strings, even if you don't specify the "dbjson" tag.
 ```
 type WrestlerBio struct {
 	Name           string      `db:"name"`
