@@ -84,7 +84,7 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 		label, jsonexists := fieldt.Tag.Lookup(s.dbjsonTag)
 		dblabel, dbexists := fieldt.Tag.Lookup(s.dbTag)
 		_, skiptagexists := fieldt.Tag.Lookup(s.dbskipTag)
-		skip := (skipEmpty && (field.Interface() != reflect.Zero(field.Type()).Interface()))
+		skip := (skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()))
 
 		if label == "" && dblabel != "" {
 			label = dblabel
@@ -261,7 +261,7 @@ func (s *DB) InsertInto(table string, data interface{}, skipEmpty bool) (res sql
 
 	v := reflect.ValueOf(data)
 	if v.Kind() != reflect.Struct {
-		return nil, errors.New(`sqlez.InsertInto: 'structure' must struct, got ` + v.Kind().String())
+		return nil, errors.New(`sqlez.InsertInto: 'structure' must be struct, got ` + v.Kind().String())
 	}
 
 	labels, interfaces, err := s.scanStruct(v, false, skipEmpty, true)
