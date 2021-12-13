@@ -15,7 +15,7 @@ Here are some differences between sqlEZ and sqlx. If any of these are wrong, ple
 ## Getting started
 To use sqlEZ, first define a struct to represent the data you want to get from your database. You can then use that struct as a vehicle for moving data in and out of the database.
 
-For example, let's say you had a database of Sumo wrestlers, named `wreslters`, that looked like the following:
+For example, let's say you had a database of Sumo wrestlers, named `wrestlers`, that looked like the following:
 ```
 +--------------+--------------+
 | Field        | Type         |
@@ -147,7 +147,7 @@ With a struct like the above, the PointsPerRound map will be saved in a column t
 If you don't want to use the "db", "dbjson", and "dbskip" tags and would rather call them something else (to avoid conflicts, for example), you can call sqlez.SetDBTag(string), sqlez.SetJSONTag(string), and sqlez.SetSkipTag(string) right after creating the sqlez.DB object to change the text it searches for.
 
 ### Troubleshooting
-If you want to examine the SQL command that sqlEZ has generated for you, the `ezsql.DB` object that `ezsql.Open()` returns includes a `LastQuery` variable which will contain the string that was last generated. This usually gets updated even if your SQL database returns an error, so printing out this string can be a quick way to see why things aren't working.
+If you want to examine the SQL command that sqlEZ has generated for you, the `sqlez.DB` object that `sqlez.Open()` returns includes a `LastQuery` variable which will contain the string that was last generated. This usually gets updated even if your SQL database returns an error, so printing out this string can be a quick way to see why things aren't working.
 
 The following code with a typo in it...
 ```
