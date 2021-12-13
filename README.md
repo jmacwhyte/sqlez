@@ -109,9 +109,12 @@ frank := WrestlerBio{
 ```
 And simply pass it to sqlEZ using `InsertInto`:
 ```
-res, err := db.InsertInto("wrestlers", frank, false)
+res, err := db.InsertInto("wrestlers", frank, Params{})
 ```
-You may be wondering about the `false` being passed into the `InsertInto` method. More on that below ([Ignoring unset values](#ignoring-unset-values)).
+You can also pass a `Params` struct with some bool flags:
+
+SkipEmpty - See below ([Ignoring unset values](#ignoring-unset-values))
+OrIgnore - Will "INSERT OR IGNORE INTO" if you want to silently ignore duplicate keys
 
 ### UPDAT[E]ing data
 Updating data is very similar to inserting, but it usually helps to add a `Where` statement to make sure you only update what you want to:
@@ -129,7 +132,7 @@ res, err := db.Update("wrestlers", WrestlerBio{Nickname: "Shinagawa Slender"}, s
 	SkipEmpty: true})
 ```
 
-`InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them. Enable it by passing `true` to `InsertInto`'s third parameter (`skipEmpty`).
+`InsertInto` also has this feature, which will allow your SQL database to populate columns with default values if you don't want to set them.
 
 ### Storing Go types that don't have a database counterpart
 Sometimes you may want to store a type of data that exists in Go but doesn't have a related database type--for example, a map, slice, or populated struct. SqlEZ makes this possible by converting those datatypes to JSON and storing them as a string in your database. Simply give an item in your struct a field label of "dbjson" (followed by the column name) and sqlEZ will automatically convert your data type to and from JSON when moving data into/out of the database. Maps will automatically be converted to JSON strings, even if you don't specify the "dbjson" tag.

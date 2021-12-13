@@ -15,6 +15,7 @@ type Params struct {
 	OrderBy   string
 	Limit     int
 	SkipEmpty bool
+	OrIgnore  bool
 }
 
 // DB represents the sqlez database wrapper
@@ -255,16 +256,21 @@ func (s *DB) SelectFrom(table string, structure interface{}, params ...interface
 }
 
 // InsertInto performs a "INSERT INTO x (y) VALUES (z)" query on the database and returns the results.
-// Pass a struct representing the data you want to insert. Set skipEmpty to true if you want to ignore
+// Pass a struct representing the data you want to insert. Set params.SkipEmpty to true if you want to ignore
 // fields in the struct that are unset/zero. Otherwise the zeroed values will be inserted.
-func (s *DB) InsertInto(table string, data interface{}, skipEmpty bool) (res sql.Result, err error) {
+func (s *DB) InsertInto(table string, data interface{}, params ...Params) (res sql.Result, err error) {
+
+	p := Params{}
+	if params != nil {
+		p = params[0]
+	}
 
 	v := reflect.ValueOf(data)
 	if v.Kind() != reflect.Struct {
 		return nil, errors.New(`sqlez.InsertInto: 'structure' must be struct, got ` + v.Kind().String())
 	}
 
-	labels, interfaces, err := s.scanStruct(v, false, skipEmpty, true)
+	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty, true)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +286,12 @@ func (s *DB) InsertInto(table string, data interface{}, skipEmpty bool) (res sql
 		}
 	}
 
-	query := "INSERT INTO " + table + " (" + columns + ") VALUES (" + values + ")"
+	query := "INSERT INTO "
+	if p.OrIgnore {
+		query = "INSERT OR IGNORE INTO "
+	}
+
+	query = query + table + " (" + columns + ") VALUES (" + values + ")"
 	s.LastQuery = query
 	return s.DB.Exec(query, interfaces...)
 }
