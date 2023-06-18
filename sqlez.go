@@ -166,6 +166,10 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 func (s *DB) SelectFrom(table string, structure interface{}, params ...interface{}) (out []interface{}, err error) {
 
 	t := reflect.TypeOf(structure)
+	for t.Kind() == reflect.Ptr {
+		structure = reflect.ValueOf(structure).Elem().Interface()
+		t = reflect.TypeOf(structure)
+	}
 	if t.Kind() != reflect.Struct {
 		return nil, errors.New(`sqlez.SelectFrom: 'structure' must be struct, got ` + t.Kind().String())
 	}
@@ -271,8 +275,12 @@ func (s *DB) InsertInto(table string, data interface{}, params ...Params) (res s
 	}
 
 	v := reflect.ValueOf(data)
+	for v.Kind() == reflect.Ptr {
+		data = reflect.ValueOf(data).Elem().Interface()
+		v = reflect.ValueOf(data)
+	}
 	if v.Kind() != reflect.Struct {
-		return nil, errors.New(`sqlez.InsertInto: 'structure' must be struct, got ` + v.Kind().String())
+		return nil, errors.New(`sqlez.InsertInto: 'data' must be struct, got ` + v.Kind().String())
 	}
 
 	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty, true)
