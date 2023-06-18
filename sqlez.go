@@ -87,6 +87,11 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 		_, skiptagexists := fieldt.Tag.Lookup(s.dbskipTag)
 		skip := (skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()))
 
+		// Ignore all unexported or skipped fields
+		if (!jsonexists && !dbexists) || skiptagexists {
+			continue
+		}
+
 		if label == "" && dblabel != "" {
 			label = dblabel
 		}
