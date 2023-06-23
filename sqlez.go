@@ -85,20 +85,16 @@ func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun
 		label, jsonexists := fieldt.Tag.Lookup(s.dbjsonTag)
 		dblabel, dbexists := fieldt.Tag.Lookup(s.dbTag)
 		_, skiptagexists := fieldt.Tag.Lookup(s.dbskipTag)
-		skip := (skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()))
 
 		// Ignore all unexported or skipped fields
 		if (!jsonexists && !dbexists) || skiptagexists {
 			continue
 		}
 
+		skip := (skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()))
+
 		if label == "" && dblabel != "" {
 			label = dblabel
-		}
-
-		// If there's a skip tag, skip it
-		if skiptagexists {
-			continue
 		}
 
 		// If it is a struct, but we aren't supposed to handle it as json, recursively scan it
