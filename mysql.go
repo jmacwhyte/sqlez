@@ -8,24 +8,24 @@ import (
 	"time"
 )
 
-//TODO: complete this
-
 type MySQLDriver struct{}
 
 func (d MySQLDriver) GetDataType(t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.String:
 		return "VARCHAR(255)"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Bool:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return "INT"
+	case reflect.Bool:
+		return "BOOL"
 	case reflect.Float32, reflect.Float64:
 		return "FLOAT"
 	case reflect.Struct:
 		if t == reflect.TypeOf(time.Time{}) {
-			return "DATETIME"
+			return "TIMESTAMP"
 		}
 	}
-	return "TEXT"
+	return "TEXT(65535)"
 }
 
 func (d MySQLDriver) GetName() string {
@@ -38,12 +38,12 @@ func (d MySQLDriver) CreateTable(data *DBObjectMetadata) string {
 	for _, col := range data.cols {
 		pk := ""
 		if col.primary {
-			pk = " NOT NULL PRIMARY KEY"
+			pk = " NOT NULL"
 		}
 
 		auto := ""
 		if col.autoinc || col.primary {
-			auto = " AUTOINCREMENT"
+			auto = " AUTO_INCREMENT"
 		}
 
 		def := ""
@@ -57,6 +57,10 @@ func (d MySQLDriver) CreateTable(data *DBObjectMetadata) string {
 		}
 
 		columns = append(columns, fmt.Sprintf("%s %s%s%s%s%s", col.label, col.sqlType, pk, auto, def, prop))
+	}
+
+	if data.pkey >= 0 {
+		columns = append(columns, fmt.Sprintf("PRIMARY KEY (%s)", data.cols[data.pkey].label))
 	}
 
 	if data.fkey >= 0 {
@@ -105,7 +109,7 @@ func (d MySQLDriver) InsertIgnore(data *DBObjectAddOn, ignore bool) (query strin
 
 	ig := ""
 	if ignore {
-		ig = " OR IGNORE"
+		ig = " IGNORE"
 	}
 
 	query = fmt.Sprintf("INSERT%s INTO %s (%s) VALUES (%s)", ig, data.meta.table, strings.Join(columns, ", "), strings.Repeat("?, ", len(columns)-1)+"?")

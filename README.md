@@ -1,8 +1,9 @@
-Notes: Nothing will be null
-Private key must exist, will be int and autoincrement
-Time will be stored as int (unix)
+Currently a work in progress for v2.
 
-TODO: maps to json
+Some constraints:
+Nothing will be null
+Primary key must exist, will be int and autoincrement
+Time will be stored as int (unix)
 
 # sqlEZ - A simpler way to use SQL in Go
 ### Why this exists
