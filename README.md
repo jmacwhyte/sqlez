@@ -1,3 +1,9 @@
+Notes: Nothing will be null
+Private key must exist, will be int and autoincrement
+Time will be stored as int (unix)
+
+TODO: maps to json
+
 # sqlEZ - A simpler way to use SQL in Go
 ### Why this exists
 I had written multiple functions to SELECT, INSERT, and UPDATE data in my database, but with 30+ columns of data being referenced each time, making small changes turned tedious. If I wanted to change or add a column in/to my database, I now had to update the SQL code in each function, update the structs I was adding the data to, and make sure the data from the column made it into the correct part of the struct. There must be a better way!

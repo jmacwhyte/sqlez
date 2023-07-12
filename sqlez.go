@@ -2,366 +2,161 @@ package sqlez
 
 import (
 	"database/sql"
-	"encoding/json"
-	"errors"
+	"fmt"
 	"reflect"
-	"strconv"
-	"strings"
+	"time"
 )
+
+var (
+	MySQL  = MySQLDriver{}
+	Sqlite = SqliteDriver{}
+)
+
+type GoType int
+
+const (
+	GoString GoType = iota
+	GoInt
+	GoFloat
+	GoBool
+	GoTime
+	GoStruct
+)
+
+type DBDriver interface {
+	GetDataType(reflect.Type) string
+	GetName() string
+	CreateTable(data *DBObjectMetadata) string
+	InsertIgnore(data *DBObjectAddOn, ignore bool) (string, []interface{})
+	Update(data *DBObjectAddOn) (string, []interface{})
+	Select(data *DBObjectAddOn, params Params) string
+	Delete(data *DBObjectAddOn) (string, interface{})
+}
 
 // Params contains the parameters for the query
 type Params struct {
-	Where     string
-	OrderBy   string
-	Limit     int
-	SkipEmpty bool
-	OrIgnore  bool
+	Where   string
+	OrderBy string
+	Limit   int
 }
 
 // DB represents the sqlez database wrapper
 type DB struct {
-	DB            *sql.DB
-	LastQuery     string
-	dbTag         string
-	dbjsonTag     string
-	dbskipTag     string
-	jsonPtr       map[*sql.NullString]interface{}
-	nullStringPtr map[*sql.NullString]interface{}
+	DB        *sql.DB
+	driver    DBDriver
+	objects   map[reflect.Type]DBObjectMetadata
+	LastQuery string
+	dbTag     string
+	timeType  reflect.Type
+	// mutex     sync.Mutex
+}
+
+type DBObjectMetadata struct {
+	table          string
+	pkey           int
+	fkey           int
+	created        int
+	updated        int
+	refreshOrderBy string
+	cols           []DBColumn
+	validated      bool
+}
+
+type DBColumn struct {
+	label        string
+	field        int
+	sqlType      string
+	goType       GoType
+	primary      bool
+	foreignTable string
+	foreignKey   string
+	unique       bool
+	autoinc      bool
+	created      bool
+	updated      bool
+	def          string
+	json         bool
+	colProp      string
 }
 
 // Open initiates the connection to the database. It takes the same parameters as the database/sql package, and returns a sqlEZ DB struct. The contained *sql.DB is exported so you can make use of it directly.
-func Open(driverName, dataSourceName string) (*DB, error) {
-	var ez DB
-	var err error
-
-	ez.DB, err = sql.Open(driverName, dataSourceName)
-	if err != nil {
-		return nil, err
+func Open(driver DBDriver, dataSourceName string) (d *DB, err error) {
+	ez := DB{
+		driver:   driver,
+		objects:  make(map[reflect.Type]DBObjectMetadata),
+		dbTag:    "db",
+		timeType: reflect.TypeOf(time.Time{}),
 	}
 
-	ez.dbTag, ez.dbjsonTag, ez.dbskipTag = "db", "dbjson", "dbskip"
-
-	return &ez, nil
-}
-
-// Close closes the connection to the database
-func (s DB) Close() error {
-	return s.DB.Close()
-}
-
-// SetDBTag changes the struct field tag to look for when searching for database column names.
-func (s *DB) SetDBTag(tag string) {
-	s.dbTag = tag
-}
-
-// SetJSONTag changes the struct field tag to look for when searching for database column names for datatypes that should be saved as JSON.
-func (s *DB) SetJSONTag(tag string) {
-	s.dbjsonTag = tag
-}
-
-// SetSkipTag changes the struct field tag to look for when ignoring embedded structs.
-func (s *DB) SetSkipTag(tag string) {
-	s.dbskipTag = tag
-}
-
-// scanStruct recursively scans a provided struct and returns pointers/interfaces and labels for all items that
-// have a "db" tag. Set pointers to true if you want pointers, otherwise interfaces will be returned. Set skipEmpty
-// to true if you want to ignore fields that have unset/zero values.
-func (s *DB) scanStruct(v reflect.Value, pointers bool, skipEmpty bool, firstRun bool) ([]string, []interface{}, error) {
-
-	if firstRun {
-		s.jsonPtr = make(map[*sql.NullString]interface{})
-		s.nullStringPtr = make(map[*sql.NullString]interface{})
-	}
-
-	var data []interface{}
-	var labels []string
-
-	for i := 0; i < v.NumField(); i++ {
-		field := v.Field(i)
-		fieldt := v.Type().Field(i)
-
-		// Get all the tags, and check if empty/should be skipped
-		label, jsonexists := fieldt.Tag.Lookup(s.dbjsonTag)
-		dblabel, dbexists := fieldt.Tag.Lookup(s.dbTag)
-		_, skiptagexists := fieldt.Tag.Lookup(s.dbskipTag)
-
-		// Ignore all unexported or skipped fields
-		if (!jsonexists && !dbexists) || skiptagexists {
-			continue
-		}
-
-		skip := (skipEmpty && (field.Interface() == reflect.Zero(field.Type()).Interface()))
-
-		if label == "" && dblabel != "" {
-			label = dblabel
-		}
-
-		// If it is a struct, but we aren't supposed to handle it as json, recursively scan it
-		if field.Kind() == reflect.Struct && !jsonexists {
-			l, d, e := s.scanStruct(field, pointers, skipEmpty, false)
-			if e != nil {
-				return nil, nil, e
-			}
-			labels = append(labels, l...)
-			data = append(data, d...)
-			continue
-		}
-
-		// If it's tagged as json, we need to convert it. We do this automatically for maps.
-		if jsonexists || (dbexists && fieldt.Type.Kind() == reflect.Map) {
-
-			// If we are requesting pointers, we must be pulling data from the database. Save a pointer to the actual
-			// interface in the buffer, and pass a pointer to a string in the other buffer. After pulling data from the
-			// database, Unmarshal the string into the pointer saved in the buffer before returning the data. We can do
-			// the same thing with converting strings to NullString.
-			if pointers {
-				str := new(sql.NullString)
-				s.jsonPtr[str] = field.Addr().Interface()
-				data = append(data, str)
-
-			} else { // Prepare json to insert into database
-				payload, err := json.Marshal(field.Interface())
-				if err != nil {
-					return nil, nil, errors.New(field.Type().Name() + ": " + err.Error())
-				}
-				data = append(data, payload)
-			}
-
-			labels = append(labels, label)
-			continue
-		}
-
-		// Otherwise, if it has a DB label let's process it
-		if dbexists && !skip {
-
-			labels = append(labels, label)
-			if pointers {
-				if field.Kind() == reflect.String {
-					ns := new(sql.NullString)
-					s.nullStringPtr[ns] = field.Addr().Interface()
-					data = append(data, ns)
-					continue
-				}
-				data = append(data, field.Addr().Interface())
-			} else {
-				data = append(data, field.Interface())
-			}
-		}
-	}
-
-	if len(labels) == 0 {
-		return nil, nil, errors.New(`sqlez: couldn't find any fields labeled ` + s.dbTag + ` or ` + s.dbjsonTag)
-	}
-
-	return labels, data, nil
-}
-
-// SelectFrom performs a "SELECT y FROM x" query on the database and returns a []interface{} of the results.
-// Pass in a struct representing the database rows to specify what data you get back.
-func (s *DB) SelectFrom(table string, structure interface{}, params ...interface{}) (out []interface{}, err error) {
-
-	t := reflect.TypeOf(structure)
-	for t.Kind() == reflect.Ptr {
-		structure = reflect.ValueOf(structure).Elem().Interface()
-		t = reflect.TypeOf(structure)
-	}
-	if t.Kind() != reflect.Struct {
-		return nil, errors.New(`sqlez.SelectFrom: 'structure' must be struct, got ` + t.Kind().String())
-	}
-
-	copy := reflect.New(t).Elem()
-	labels, pointers, err := s.scanStruct(copy, true, false, true)
-	if err != nil {
-		return nil, err
-	}
-
-	query := "SELECT "
-	for i, v := range labels {
-		query += v
-		if i < len(labels)-1 {
-			query += ", "
-		}
-	}
-	query += " FROM " + table
-
-	if len(params) > 0 {
-
-		if reflect.TypeOf(params[0]).String() != "sqlez.Params" {
-			return nil, errors.New(`sqlez.SelectFrom: third parameter passed wasn't a sqlez.Params`)
-		}
-
-		p := params[0].(Params)
-		params = params[1:]
-
-		if p.Where != "" {
-			where := strings.Trim(p.Where, " ,")
-
-			if strings.ToLower(where[:5]) == "where" {
-				return nil, errors.New(`sqlez.SelectFrom: Params.Where starts with WHERE`)
-			}
-			query += " WHERE " + where
-		}
-
-		if p.OrderBy != "" {
-			order := strings.Trim(p.OrderBy, " ,")
-
-			if strings.ToLower(order[:5]) == "order" {
-				return nil, errors.New(`sqlez.SelectFrom: Params.OrderBy starts with ORDER`)
-			}
-			query += " ORDER BY " + order
-		}
-
-		if p.Limit > 0 {
-			query += " LIMIT " + strconv.Itoa(p.Limit)
-		}
-	}
-
-	s.LastQuery = query
-
-	var result *sql.Rows
-	result, err = s.DB.Query(query, params...)
+	ez.DB, err = sql.Open(driver.GetName(), dataSourceName)
 	if err != nil {
 		return
 	}
 
-	for result.Next() {
-		err = result.Scan(pointers...)
-		if err != nil {
-			return
-		}
-
-		// Unmarshal any strings we have in the buffer
-		for i, v := range s.jsonPtr {
-			if i.Valid {
-				err = json.Unmarshal([]byte(i.String), v)
-				if err != nil {
-					return nil, errors.New(i.String + ": " + err.Error())
-				}
-
-			}
-		}
-
-		// Unwrap any sql.NullStrings
-		for i, v := range s.nullStringPtr {
-			if i.Valid {
-				reflect.ValueOf(v).Elem().SetString(i.String)
-			}
-		}
-
-		out = append(out, copy.Interface())
-	}
-
-	err = result.Close()
-	if err != nil {
-		return
-	}
-
+	d = &ez
 	return
 }
 
-// InsertInto performs a "INSERT INTO x (y) VALUES (z)" query on the database and returns the results.
-// Pass a struct representing the data you want to insert. Set params.SkipEmpty to true if you want to ignore
-// fields in the struct that are unset/zero. Otherwise the zeroed values will be inserted.
-func (s *DB) InsertInto(table string, data interface{}, params ...Params) (res sql.Result, err error) {
-
-	p := Params{}
-	if params != nil {
-		p = params[0]
-	}
-
-	v := reflect.ValueOf(data)
-	for v.Kind() == reflect.Ptr {
-		data = reflect.ValueOf(data).Elem().Interface()
-		v = reflect.ValueOf(data)
-	}
-	if v.Kind() != reflect.Struct {
-		return nil, errors.New(`sqlez.InsertInto: 'data' must be struct, got ` + v.Kind().String())
-	}
-
-	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty, true)
-	if err != nil {
-		return nil, err
-	}
-	var columns string
-	var values string
-
-	for i, v := range labels {
-		columns += v
-		values += "?"
-		if i < len(labels)-1 {
-			columns += ", "
-			values += ", "
-		}
-	}
-
-	query := "INSERT INTO "
-	if p.OrIgnore {
-		query = "INSERT OR IGNORE INTO "
-	}
-
-	query = query + table + " (" + columns + ") VALUES (" + values + ")"
-	s.LastQuery = query
-	return s.DB.Exec(query, interfaces...)
+// Close closes the connection to the database
+func (d DB) Close() error {
+	return d.DB.Close()
 }
 
-// Update performs an "UPDATE x SET y = z" query on the database and returns the results.
-// Pass a struct representing the data you want to update and Params to specify what to update.
-func (s *DB) Update(table string, data interface{}, params ...interface{}) (res sql.Result, err error) {
+// SetDBTag changes the struct field tag to look for when searching for database column names.
+func (d *DB) SetDBTag(tag string) {
+	d.dbTag = tag
+}
 
-	v := reflect.ValueOf(data)
-	if v.Kind() != reflect.Struct {
-		return nil, errors.New(`sqlez.Update: 'data' must be struct, got ` + v.Kind().String())
+// Attach connects an object to the database and makes it ready to be accessed
+func (d *DB) Attach(ptr DBObject) error {
+	ptr.Init(ptr, d)
+	return nil
+}
+
+func (d *DB) GetMany(params Params, ptr interface{}) error {
+	// make sure it's a Pointer
+	if reflect.ValueOf(ptr).Kind() != reflect.Ptr {
+		return fmt.Errorf("expected pointer, got %s", reflect.ValueOf(ptr).Kind().String())
 	}
 
-	var options string
-	var p Params
-	if len(params) > 0 {
-		if reflect.TypeOf(params[0]).String() != "sqlez.Params" {
-			return nil, errors.New(`sqlez.Update: third parameter passed wasn't a sqlez.Params`)
-		}
-
-		p = params[0].(Params)
-		params = params[1:]
-
-		if p.Where != "" {
-			where := strings.Trim(p.Where, " ,")
-
-			if strings.ToLower(where[:5]) == "where" {
-				return nil, errors.New(`sqlez.Update: Params.Where starts with WHERE`)
-			}
-			options += " WHERE " + where
-		}
-
-		if p.OrderBy != "" {
-			order := strings.Trim(p.OrderBy, " ,")
-
-			if strings.ToLower(order[:5]) == "order" {
-				return nil, errors.New(`sqlez.Update: Params.OrderBy starts with ORDER`)
-			}
-			options += " ORDER BY " + order
-		}
-
-		if p.Limit > 0 {
-			options += " LIMIT " + strconv.Itoa(p.Limit)
-		}
+	// make sure the pointer points to a slice
+	if k := reflect.ValueOf(ptr).Elem().Kind(); k != reflect.Slice {
+		return fmt.Errorf("expected slice, got %s", k.String())
 	}
 
-	labels, interfaces, err := s.scanStruct(v, false, p.SkipEmpty, true)
+	var query string
+	// make a new one for metadata and get the query
+	if obj, ok := reflect.New(reflect.TypeOf(ptr).Elem().Elem()).Interface().(DBObject); !ok {
+		return fmt.Errorf("expected pointer to slice of DBObjects, got pointer to slice of %s", reflect.TypeOf(ptr).Elem().Elem().Kind().String())
+	} else {
+		obj.Init(obj, d)
+		query = d.driver.Select(obj.GetAddOn(), params)
+	}
+	d.LastQuery = query
+
+	rows, err := d.DB.Query(query)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer rows.Close()
 
-	query := "UPDATE " + table + " SET "
-	for i, v := range labels {
-		query += v + " = ?"
-		if i < len(labels)-1 {
-			query += ", "
+	slc := reflect.MakeSlice(reflect.TypeOf(ptr).Elem(), 0, 0)
+
+	count := 0
+	for rows.Next() {
+		no := reflect.New(reflect.TypeOf(ptr).Elem().Elem()).Interface().(DBObject)
+		no.Init(no, d)
+
+		if n, e := no.GetAddOn().populate(rows); e != nil {
+			break
+		} else if n == 0 {
+			continue
 		}
-	}
-	query += options
 
-	s.LastQuery = query
-	interfaces = append(interfaces, params...)
-	return s.DB.Exec(query, interfaces...)
+		slc = reflect.Append(slc, reflect.ValueOf(no).Elem())
+		count++
+	}
+
+	reflect.ValueOf(ptr).Elem().Set(slc)
+	return err
 }
